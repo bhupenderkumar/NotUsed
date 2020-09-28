@@ -1,141 +1,129 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
-import { HttpResponse } from '@angular/common/http';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-
+import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { HttpResponse, HttpHeaders, HttpErrorResponse } from '@angular/common/http';
+import { Subscription } from 'rxjs';
+import { switchMap, tap, filter } from 'rxjs/operators';
 import { ActivatedRoute, Router } from '@angular/router';
-import { JhiEventManager, JhiParseLinks, JhiAlertService } from 'ng-jhipster';
-
-import { ITEMS_PER_PAGE } from 'app/shared';
-import { AccountService, UserService, User } from 'app/core';
-import { UserMgmtDeleteDialogComponent } from './user-management-delete-dialog.component';
+import { JhiEventManager } from 'ng-jhipster';
+import { ConfirmationService, LazyLoadEvent, MessageService } from 'primeng/api';
+import { ITEMS_PER_PAGE } from 'app/shared/constants/pagination.constants';
+import {
+  computeFilterMatchMode,
+  lazyLoadEventToServerQueryParams,
+  lazyLoadEventToRouterQueryParams,
+  fillTableFromQueryParams
+} from 'app/shared/util/request-util';
+import { AccountService } from 'app/core/auth/account.service';
+import { Account } from 'app/core/user/account.model';
+import { UserService } from 'app/core/user/user.service';
+import { IUser } from 'app/core/user/user.model';
+import { Table } from 'primeng/table';
+import { TranslateService } from '@ngx-translate/core';
 
 @Component({
   selector: 'jhi-user-mgmt',
   templateUrl: './user-management.component.html'
 })
-export class UserMgmtComponent implements OnInit, OnDestroy {
-  currentAccount: any;
-  users: User[];
-  error: any;
-  success: any;
-  routeData: any;
-  links: any;
-  totalItems: any;
-  itemsPerPage: any;
-  page: any;
-  predicate: any;
-  previousPage: any;
-  reverse: any;
+export class UserManagementComponent implements OnInit, OnDestroy {
+  currentAccount: Account | null = null;
+  users: IUser[] | null = null;
+  eventSubscriber?: Subscription;
+
+  totalItems?: number;
+  itemsPerPage!: number;
+  loading!: boolean;
+
+  private filtersDetails: { [_: string]: { matchMode?: string; flatten?: (_: any) => string; unflatten?: (_: string) => any } } = {};
+
+  @ViewChild('userTable', { static: true })
+  userTable!: Table;
 
   constructor(
-    private userService: UserService,
-    private alertService: JhiAlertService,
-    private accountService: AccountService,
-    private parseLinks: JhiParseLinks,
-    private activatedRoute: ActivatedRoute,
-    private router: Router,
-    private eventManager: JhiEventManager,
-    private modalService: NgbModal
+    protected userService: UserService,
+    protected messageService: MessageService,
+    protected accountService: AccountService,
+    protected activatedRoute: ActivatedRoute,
+    protected router: Router,
+    protected eventManager: JhiEventManager,
+    protected confirmationService: ConfirmationService,
+    protected translateService: TranslateService
   ) {
     this.itemsPerPage = ITEMS_PER_PAGE;
-    this.routeData = this.activatedRoute.data.subscribe(data => {
-      this.page = data['pagingParams'].page;
-      this.previousPage = data['pagingParams'].page;
-      this.reverse = data['pagingParams'].ascending;
-      this.predicate = data['pagingParams'].predicate;
-    });
+    this.loading = true;
   }
 
-  ngOnInit() {
-    this.accountService.identity().then(account => {
+  ngOnInit(): void {
+    this.accountService.identity().subscribe((account: Account | null) => {
       this.currentAccount = account;
-      this.loadAll();
-      this.registerChangeInUsers();
+    });
+    this.registerChangeInUsers();
+    this.activatedRoute.queryParams
+      .pipe(
+        tap(queryParams => fillTableFromQueryParams(this.userTable, queryParams, this.filtersDetails)),
+        tap(() => (this.loading = true)),
+        switchMap(() => this.userService.query(lazyLoadEventToServerQueryParams(this.userTable.createLazyLoadMetadata()))),
+        filter((res: HttpResponse<IUser[]>) => res.ok)
+      )
+      .subscribe(
+        (res: HttpResponse<IUser[]>) => {
+          this.paginateUsers(res.body!, res.headers);
+          this.loading = false;
+        },
+        (res: HttpErrorResponse) => {
+          this.onError(res.message);
+          this.loading = false;
+        }
+      );
+  }
+
+  ngOnDestroy(): void {
+    if (this.eventSubscriber) {
+      this.eventManager.destroy(this.eventSubscriber);
+    }
+  }
+
+  onLazyLoadEvent(event: LazyLoadEvent): void {
+    const queryParams = lazyLoadEventToRouterQueryParams(event, this.filtersDetails);
+    this.router.navigate(['/admin/user-management'], { queryParams });
+  }
+
+  filter(value: any, field: string): void {
+    this.userTable.filter(value, field, computeFilterMatchMode(this.filtersDetails[field]));
+  }
+
+  delete(login: string): void {
+    this.confirmationService.confirm({
+      header: this.translateService.instant('entity.delete.title'),
+      message: this.translateService.instant('userManagement.delete.question', { login }),
+      accept: () => {
+        this.userService.delete(login).subscribe(() => {
+          this.eventManager.broadcast({
+            name: 'userListModification',
+            content: 'Deleted a user'
+          });
+        });
+      }
     });
   }
 
-  ngOnDestroy() {
-    this.routeData.unsubscribe();
+  trackId(index: number, item: IUser): string {
+    return item.login!;
   }
 
-  registerChangeInUsers() {
-    this.eventManager.subscribe('userListModification', response => this.loadAll());
+  registerChangeInUsers(): void {
+    this.eventSubscriber = this.eventManager.subscribe('userListModification', () => {});
   }
 
-  setActive(user, isActivated) {
+  setActive(user: IUser, isActivated: boolean): void {
     user.activated = isActivated;
-
-    this.userService.update(user).subscribe(response => {
-      if (response.status === 200) {
-        this.error = null;
-        this.success = 'OK';
-        this.loadAll();
-      } else {
-        this.success = null;
-        this.error = 'ERROR';
-      }
-    });
+    this.userService.update(user).subscribe();
   }
 
-  loadAll() {
-    this.userService
-      .query({
-        page: this.page - 1,
-        size: this.itemsPerPage,
-        sort: this.sort()
-      })
-      .subscribe((res: HttpResponse<User[]>) => this.onSuccess(res.body, res.headers), (res: HttpResponse<any>) => this.onError(res.body));
-  }
-
-  trackIdentity(index, item: User) {
-    return item.id;
-  }
-
-  sort() {
-    const result = [this.predicate + ',' + (this.reverse ? 'asc' : 'desc')];
-    if (this.predicate !== 'id') {
-      result.push('id');
-    }
-    return result;
-  }
-
-  loadPage(page: number) {
-    if (page !== this.previousPage) {
-      this.previousPage = page;
-      this.transition();
-    }
-  }
-
-  transition() {
-    this.router.navigate(['/admin/user-management'], {
-      queryParams: {
-        page: this.page,
-        sort: this.predicate + ',' + (this.reverse ? 'asc' : 'desc')
-      }
-    });
-    this.loadAll();
-  }
-
-  deleteUser(user: User) {
-    const modalRef = this.modalService.open(UserMgmtDeleteDialogComponent, { size: 'lg', backdrop: 'static' });
-    modalRef.componentInstance.user = user;
-    modalRef.result.then(
-      result => {
-        // Left blank intentionally, nothing to do here
-      },
-      reason => {
-        // Left blank intentionally, nothing to do here
-      }
-    );
-  }
-
-  private onSuccess(data, headers) {
-    this.links = this.parseLinks.parse(headers.get('link'));
-    this.totalItems = headers.get('X-Total-Count');
+  protected paginateUsers(data: IUser[], headers: HttpHeaders): void {
+    this.totalItems = Number(headers.get('X-Total-Count'));
     this.users = data;
   }
 
-  private onError(error) {
-    this.alertService.error(error.error, error.message, null);
+  protected onError(errorMessage: string): void {
+    this.messageService.add({ severity: 'error', summary: errorMessage });
   }
 }

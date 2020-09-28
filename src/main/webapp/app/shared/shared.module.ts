@@ -1,17 +1,13 @@
-import { NgModule, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import { NatureSharedCommonModule, JhiLoginModalComponent, HasAnyAuthorityDirective } from './';
-
+import { NgModule } from '@angular/core';
+import { NatureSharedLibsModule } from './shared-libs.module';
+import { FindLanguageFromKeyPipe } from './language/find-language-from-key.pipe';
+import { LoginModalComponent } from './login/login.component';
+import { HasAnyAuthorityDirective } from './auth/has-any-authority.directive';
+import { PrimeNGCommonModule } from 'app/shared/primeng-common.module';
 @NgModule({
-  imports: [NatureSharedCommonModule],
-  declarations: [JhiLoginModalComponent, HasAnyAuthorityDirective],
-  entryComponents: [JhiLoginModalComponent],
-  exports: [NatureSharedCommonModule, JhiLoginModalComponent, HasAnyAuthorityDirective],
-  schemas: [CUSTOM_ELEMENTS_SCHEMA]
+  imports: [NatureSharedLibsModule, PrimeNGCommonModule],
+  declarations: [FindLanguageFromKeyPipe, LoginModalComponent, HasAnyAuthorityDirective],
+  entryComponents: [LoginModalComponent],
+  exports: [NatureSharedLibsModule, FindLanguageFromKeyPipe, LoginModalComponent, HasAnyAuthorityDirective, PrimeNGCommonModule]
 })
-export class NatureSharedModule {
-  static forRoot() {
-    return {
-      ngModule: NatureSharedModule
-    };
-  }
-}
+export class NatureSharedModule {}

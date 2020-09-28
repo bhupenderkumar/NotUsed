@@ -32,10 +32,22 @@
     "jhiPrefix": "jhi",
     "entitySuffix": "",
     "dtoSuffix": "DTO",
-    "otherModules": [],
+    "otherModules": [
+      {
+        "name": "generator-jhipster-primeng-blueprint",
+        "version": "6.8.3"
+      }
+    ],
     "enableTranslation": true,
     "nativeLanguage": "en",
     "languages": ["en", "hi"],
-    "blueprints": []
+    "blueprints": [
+      {
+        "name": "generator-jhipster-primeng-blueprint",
+        "version": "6.8.3"
+      }
+    ],
+    "herokuAppName": "nature",
+    "herokuDeployType": "git"
   }
 }
